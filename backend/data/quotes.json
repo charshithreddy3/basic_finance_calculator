@@ -1,0 +1,53 @@
+[
+  {
+    "cost": 18000,
+    "profit": 2000,
+    "sellingPrice": 20000,
+    "term": 48,
+    "rate": 6,
+    "outOfPocket": 4000,
+    "taxRate": 8,
+    "quoteName": "2025 Ford Escape",
+    "taxes": 1600,
+    "baseLoanAmount": 17600,
+    "interest": 2240.32,
+    "totalLoanAmount": 19840.32,
+    "payment": 413.34,
+    "id": "1763334984065",
+    "createdAt": "2025-11-16T23:16:24.065Z"
+  },
+  {
+    "cost": 30000,
+    "profit": 1500,
+    "sellingPrice": 31500,
+    "term": 36,
+    "rate": 5.7,
+    "outOfPocket": 2000,
+    "taxRate": 7.5,
+    "quoteName": "2025 Ford Escape",
+    "taxes": 2362.5,
+    "baseLoanAmount": 31862.5,
+    "interest": 2877.14,
+    "totalLoanAmount": 34739.64,
+    "payment": 964.99,
+    "id": "1763334802499",
+    "createdAt": "2025-11-16T23:13:22.499Z"
+  },
+  {
+    "cost": 26000,
+    "profit": 1500,
+    "sellingPrice": 27500,
+    "term": 36,
+    "rate": 5.7,
+    "outOfPocket": 2000,
+    "taxRate": 7.5,
+    "quoteName": "2025 Ford Escape",
+    "taxes": 2062.5,
+    "baseLoanAmount": 27562.5,
+    "interest": 2488.86,
+    "totalLoanAmount": 30051.36,
+    "payment": 834.76,
+    "id": "1763334794781",
+    "createdAt": "2025-11-16T23:13:14.781Z"
+  }
+]

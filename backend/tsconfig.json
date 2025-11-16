@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    // Compile modern but Node-friendly JS
+    "target": "ES2019",
+    "module": "commonjs",
+
+    // Where TypeScript looks for source files and where it outputs JS
+    "rootDir": "./src",
+    "outDir": "./dist",
+
+    // Nice interop so `import express from "express"` works
+    "esModuleInterop": true,
+
+    // Good defaults
+    "strict": true,
+    "skipLibCheck": true
+  }
+}
