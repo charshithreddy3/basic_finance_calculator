@@ -1,38 +1,9 @@
 <script setup lang="ts">
-import { reactive, ref, onMounted } from "vue";
+import { reactive, ref, onMounted, computed } from "vue";
 
-const API_BASE = "http://localhost:4000";
+const API = "http://localhost:4000";
 
-/* ---------- Types ---------- */
-
-interface QuoteForm {
-  cost: number | null;
-  profit: number | null;
-  sellingPrice: number | null;
-  term: number | null;        // in months
-  rate: number | null;        // APR %
-  outOfPocket: number | null; // down payment
-  taxRate: number | null;     // %
-  quoteName: string;
-}
-
-interface QuoteResult {
-  taxes: number;
-  baseLoanAmount: number;
-  interest: number;
-  totalLoanAmount: number;
-  payment: number;
-}
-
-interface SavedQuote extends QuoteForm, QuoteResult {
-  id: string;
-  createdAt?: string; // backend adds this
-}
-
-/* ---------- State ---------- */
-
-// initial form values
-const form = reactive<QuoteForm>({
+const form = reactive({
   cost: 26906,
   profit: 1500,
   sellingPrice: 28406,
@@ -43,189 +14,96 @@ const form = reactive<QuoteForm>({
   quoteName: "2025 Ford Escape",
 });
 
-// initial result values (will be recalculated on Apply)
-const result = reactive<QuoteResult>({
-  taxes: 2130.45,
-  baseLoanAmount: 30536.45,
-  interest: 1740.58,
-  totalLoanAmount: 30277.03,
-  payment: 841.03,
+const result = reactive({
+  taxes: 0,
+  baseLoanAmount: 0,
+  interest: 0,
+  totalLoanAmount: 0,
+  payment: 0,
 });
 
-// saved quotes loaded from backend
-const savedQuotes = ref<SavedQuote[]>([]);
+const savedQuotes = ref([]);
 
-/* ---------- Helpers ---------- */
+// Utility functions
+const num = (v) => (typeof v === "number" ? v : 0);
+const round = (v) => Math.round(v * 100) / 100;
+const currency = (v) => (num(v) || 0).toLocaleString("en-US", { style: "currency", currency: "USD" });
 
-function safeNum(value: number | null): number {
-  if (typeof value !== "number" || Number.isNaN(value)) return 0;
-  return value;
-}
+// Calculate results
+const applyQuote = () => {
+  const selling = num(form.sellingPrice);
+  const taxRate = num(form.taxRate) / 100;
+  const yearlyRate = num(form.rate) / 100;
+  const term = num(form.term);
+  const down = num(form.outOfPocket);
 
-function round2(value: number): number {
-  return Math.round(value * 100) / 100;
-}
+  result.taxes = round(selling * taxRate);
+  result.baseLoanAmount = round(selling + result.taxes - down);
 
-function formatCurrency(value: number | null): string {
-  if (value == null || Number.isNaN(value)) return "$0.00";
-  return value.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-  });
-}
-
-/* ---------- Sync cost / profit / sellingPrice ---------- */
-
-function updateSellingFromCostAndProfit() {
-  const cost = safeNum(form.cost);
-  const profit = safeNum(form.profit);
-  form.sellingPrice = round2(cost + profit);
-}
-
-function updateProfitFromCostAndSelling() {
-  const cost = safeNum(form.cost);
-  const selling = safeNum(form.sellingPrice);
-  form.profit = round2(selling - cost);
-}
-
-function onCostChange() {
-  updateSellingFromCostAndProfit();
-}
-
-function onProfitChange() {
-  updateSellingFromCostAndProfit();
-}
-
-function onSellingPriceChange() {
-  updateProfitFromCostAndSelling();
-}
-
-/* ---------- Finance calculation (Apply) ---------- */
-
-function applyQuote() {
-  const selling = safeNum(form.sellingPrice);
-  const taxRate = safeNum(form.taxRate) / 100; // percent to decimal
-  const yearlyRate = safeNum(form.rate) / 100;
-  const termMonths = safeNum(form.term);
-  const outOfPocket = safeNum(form.outOfPocket);
-
-  // 1) taxes on the selling price
-  const taxes = round2(selling * taxRate);
-
-  // 2) base loan amount (what you're actually financing)
-  const baseLoanAmount = round2(selling + taxes - outOfPocket);
-
-  // 3) monthly interest rate
   const monthlyRate = yearlyRate / 12;
-
-  // 4) monthly payment
-  let payment = 0;
-  if (termMonths <= 0 || baseLoanAmount <= 0) {
-    payment = 0;
+  if (term <= 0 || result.baseLoanAmount <= 0) {
+    result.payment = 0;
   } else if (monthlyRate === 0) {
-    // no interest case
-    payment = round2(baseLoanAmount / termMonths);
+    result.payment = round(result.baseLoanAmount / term);
   } else {
-    const factor = Math.pow(1 + monthlyRate, -termMonths);
-    payment = round2((baseLoanAmount * monthlyRate) / (1 - factor));
+    const factor = Math.pow(1 + monthlyRate, -term);
+    result.payment = round((result.baseLoanAmount * monthlyRate) / (1 - factor));
   }
 
-  // 5) total loan and interest
-  const totalLoanAmount = round2(payment * termMonths);
-  const interest = round2(totalLoanAmount - baseLoanAmount);
+  result.totalLoanAmount = round(result.payment * term);
+  result.interest = round(result.totalLoanAmount - result.baseLoanAmount);
+};
 
-  // 6) write results into the reactive object
-  result.taxes = taxes;
-  result.baseLoanAmount = baseLoanAmount;
-  result.payment = payment;
-  result.totalLoanAmount = totalLoanAmount;
-  result.interest = interest;
-}
+// Update selling price when cost/profit changes
+const updateSelling = () => {
+  form.sellingPrice = round(num(form.cost) + num(form.profit));
+};
 
-/* ---------- Backend API calls ---------- */
+const updateProfit = () => {
+  form.profit = round(num(form.sellingPrice) - num(form.cost));
+};
 
-async function fetchQuotes() {
+// API calls
+const fetchQuotes = async () => {
   try {
-    const res = await fetch(`${API_BASE}/quotes`);
-    if (!res.ok) {
-      console.error("Failed to load quotes");
-      return;
-    }
-    const data = (await res.json()) as SavedQuote[];
-    savedQuotes.value = data;
-  } catch (err) {
-    console.error("Error loading quotes", err);
+    const res = await fetch(`${API}/quotes`);
+    savedQuotes.value = res.ok ? await res.json() : [];
+  } catch (e) {
+    console.error("Load failed", e);
   }
-}
+};
 
-async function saveQuote() {
+const saveQuote = async () => {
   try {
-    const payload = {
-      ...form,
-      ...result,
-    };
-
-    const res = await fetch(`${API_BASE}/quotes`, {
+    const res = await fetch(`${API}/quotes`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...form, ...result }),
     });
-
-    if (!res.ok) {
-      console.error("Failed to save quote");
-      return;
+    if (res.ok) {
+      const saved = await res.json();
+      savedQuotes.value.unshift(saved);
     }
-
-    const saved = (await res.json()) as SavedQuote;
-    // add new quote to the top of the list
-    savedQuotes.value.unshift(saved);
-  } catch (err) {
-    console.error("Error saving quote", err);
+  } catch (e) {
+    console.error("Save failed", e);
   }
-}
+};
 
-async function deleteQuote(id: string) {
+const deleteQuote = async (id) => {
   try {
-    const res = await fetch(`${API_BASE}/quotes/${id}`, {
-      method: "DELETE",
-    });
-
-    if (!res.ok && res.status !== 204) {
-      console.error("Failed to delete quote");
-      return;
-    }
-
+    await fetch(`${API}/quotes/${id}`, { method: "DELETE" });
     savedQuotes.value = savedQuotes.value.filter((q) => q.id !== id);
-  } catch (err) {
-    console.error("Error deleting quote", err);
+  } catch (e) {
+    console.error("Delete failed", e);
   }
-}
+};
 
-function viewQuote(quote: SavedQuote) {
-  // load the selected quote into the form and result panels
-  form.cost = quote.cost;
-  form.profit = quote.profit;
-  form.sellingPrice = quote.sellingPrice;
-  form.term = quote.term;
-  form.rate = quote.rate;
-  form.outOfPocket = quote.outOfPocket;
-  form.taxRate = quote.taxRate;
-  form.quoteName = quote.quoteName;
+const viewQuote = (quote) => {
+  Object.assign(form, quote);
+  Object.assign(result, quote);
+};
 
-  result.taxes = quote.taxes;
-  result.baseLoanAmount = quote.baseLoanAmount;
-  result.interest = quote.interest;
-  result.totalLoanAmount = quote.totalLoanAmount;
-  result.payment = quote.payment;
-}
-
-/* ---------- Load quotes on mount ---------- */
-
-onMounted(() => {
-  fetchQuotes();
-});
+onMounted(fetchQuotes);
 </script>
 
 <template>
@@ -236,20 +114,15 @@ onMounted(() => {
 
     <main class="app-main">
       <div class="card-grid">
-        <!-- Left: Finance Quote form -->
+        <!-- Finance Quote Form -->
         <section class="card">
           <h2>Finance Quote</h2>
-
+          
           <div class="form-row">
             <label>Cost:</label>
             <div class="input-wrapper">
               <span class="prefix">$</span>
-              <input
-                type="number"
-                v-model.number="form.cost"
-                step="0.01"
-                @input="onCostChange"
-              />
+              <input type="number" v-model.number="form.cost" step="0.01" @input="updateSelling" />
             </div>
           </div>
 
@@ -257,12 +130,7 @@ onMounted(() => {
             <label>Profit:</label>
             <div class="input-wrapper">
               <span class="prefix">$</span>
-              <input
-                type="number"
-                v-model.number="form.profit"
-                step="0.01"
-                @input="onProfitChange"
-              />
+              <input type="number" v-model.number="form.profit" step="0.01" @input="updateSelling" />
             </div>
           </div>
 
@@ -270,22 +138,14 @@ onMounted(() => {
             <label>Selling Price:</label>
             <div class="input-wrapper">
               <span class="prefix">$</span>
-              <input
-                type="number"
-                v-model.number="form.sellingPrice"
-                step="0.01"
-                @input="onSellingPriceChange"
-              />
+              <input type="number" v-model.number="form.sellingPrice" step="0.01" @input="updateProfit" />
             </div>
           </div>
 
           <div class="form-row">
             <label>Term:</label>
             <div class="input-wrapper">
-              <input
-                type="number"
-                v-model.number="form.term"
-              />
+              <input type="number" v-model.number="form.term" />
               <span class="suffix">Months</span>
             </div>
           </div>
@@ -293,11 +153,7 @@ onMounted(() => {
           <div class="form-row">
             <label>Rate:</label>
             <div class="input-wrapper">
-              <input
-                type="number"
-                v-model.number="form.rate"
-                step="0.01"
-              />
+              <input type="number" v-model.number="form.rate" step="0.01" />
               <span class="suffix">%</span>
             </div>
           </div>
@@ -306,22 +162,14 @@ onMounted(() => {
             <label>Out Of Pocket:</label>
             <div class="input-wrapper">
               <span class="prefix">$</span>
-              <input
-                type="number"
-                v-model.number="form.outOfPocket"
-                step="0.01"
-              />
+              <input type="number" v-model.number="form.outOfPocket" step="0.01" />
             </div>
           </div>
 
           <div class="form-row">
             <label>Tax Rate:</label>
             <div class="input-wrapper">
-              <input
-                type="number"
-                v-model.number="form.taxRate"
-                step="0.01"
-              />
+              <input type="number" v-model.number="form.taxRate" step="0.01" />
               <span class="suffix">%</span>
             </div>
           </div>
@@ -331,41 +179,38 @@ onMounted(() => {
           </div>
         </section>
 
-        <!-- Right: Result panel -->
+        <!-- Result -->
         <section class="card">
           <h2>Result</h2>
-
+          
           <div class="result-row">
             <span>Taxes:</span>
-            <span>{{ formatCurrency(result.taxes) }}</span>
+            <span>{{ currency(result.taxes) }}</span>
           </div>
           <div class="result-row">
-            <span>Base Loan Amount:</span>
-            <span>{{ formatCurrency(result.baseLoanAmount) }}</span>
+            <span>Base Loan:</span>
+            <span>{{ currency(result.baseLoanAmount) }}</span>
           </div>
           <div class="result-row">
             <span>Interest:</span>
-            <span>{{ formatCurrency(result.interest) }}</span>
+            <span>{{ currency(result.interest) }}</span>
           </div>
           <div class="result-row">
-            <span>Total Loan Amount:</span>
-            <span>{{ formatCurrency(result.totalLoanAmount) }}</span>
+            <span>Total Loan:</span>
+            <span>{{ currency(result.totalLoanAmount) }}</span>
           </div>
           <div class="result-row highlight">
             <span>Payment:</span>
-            <span>{{ formatCurrency(result.payment) }}</span>
+            <span>{{ currency(result.payment) }}</span>
           </div>
           <div class="result-row">
-            <span>Out Of Pocket:</span>
-            <span>{{ formatCurrency(form.outOfPocket) }}</span>
+            <span>Down Payment:</span>
+            <span>{{ currency(form.outOfPocket) }}</span>
           </div>
 
           <div class="form-row">
             <label>Quote Name:</label>
-            <input
-              type="text"
-              v-model="form.quoteName"
-            />
+            <input type="text" v-model="form.quoteName" />
           </div>
 
           <div class="actions">
@@ -377,20 +222,13 @@ onMounted(() => {
       <!-- Saved Quotes -->
       <section class="card saved">
         <h2>Saved Quotes</h2>
-
-        <div
-          v-for="quote in savedQuotes"
-          :key="quote.id"
-          class="saved-quote"
-        >
+        
+        <div v-for="quote in savedQuotes" :key="quote.id" class="saved-quote">
           <div class="saved-main">
             <div class="saved-title">{{ quote.quoteName }}</div>
             <div class="saved-details">
-              <span>Payment: {{ formatCurrency(quote.payment) }}</span>
-              <span>
-                Out of Pocket:
-                <strong>{{ formatCurrency(quote.outOfPocket) }}</strong>
-              </span>
+              <span>Payment: {{ currency(quote.payment) }}</span>
+              <span>Down: {{ currency(quote.outOfPocket) }}</span>
             </div>
           </div>
           <div class="saved-actions">
